@@ -1,114 +1,151 @@
-const express = require('express');
-const axios = require('axios');
-require('dotenv').config();
-
-const router = express.Router();
-const PORT = process.env.PORT || 3000;
-
-// Step 1: Generate authorization URL
-router.get('/auth/outlook', (req, res) => {
-    const authUrl = `https://login.microsoftonline.com/${process.env.OUTLOOK_TENANT_ID}/oauth2/v2.0/authorize?` +
-        `client_id=${process.env.OUTLOOK_CLIENT_ID}` +
-        `&response_type=code` +
-        `&redirect_uri=${encodeURIComponent(process.env.OUTLOOK_REDIRECT_URI)}` +
-        `&scope=openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send` +
-        `&prompt=consent`;
-    
-    res.redirect(authUrl);
-});
-
-// Step 2: Handle callback and get refresh token
-router.get('/auth/callback', async (req, res) => {
-    try {
-        const { code } = req.query;
-        
-        if (!code) {
-            return res.status(400).send('No authorization code received');
-        }
-
-        // Exchange code for tokens
-        const tokenResponse = await axios.post(
-            `https://login.microsoftonline.com/${process.env.OUTLOOK_TENANT_ID}/oauth2/v2.0/token`,
-            new URLSearchParams({
-                client_id: process.env.OUTLOOK_CLIENT_ID,
-                client_secret: process.env.OUTLOOK_CLIENT_SECRET,
-                code: code,
-                redirect_uri: process.env.OUTLOOK_REDIRECT_URI,
-                grant_type: 'authorization_code',
-                scope: 'openid offline_access https://outlook.office.com/SMTP.Send'
-            }),
-            {
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
-            }
+import nodemailer from "nodemailer"
+import { ClientSecretCredential } from "@azure/identity"
+class EmailService {
+    constructor() {
+      this.transporter = null;
+      this.accessToken = null;
+      this.tokenExpiry = null;
+    }
+  
+    async getAccessToken() {
+      // Check if we have a valid token
+      if (this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry - 300000) {
+        return this.accessToken;
+      }
+  
+      try {
+        const credential = new ClientSecretCredential(
+          process.env.OUTLOOK_TENANT_ID,
+          process.env.OUTLOOK_CLIENT_ID,
+          process.env.OUTLOOK_CLIENT_SECRET
         );
-
-        const { access_token, refresh_token, expires_in } = tokenResponse.data;
+  
+        const tokenResponse = await credential.getToken('https://outlook.office365.com/.default');
         
-        console.log('✅ Success! Tokens received:');
-        console.log('Access Token:', access_token.substring(0, 20) + '...');
-        console.log('Refresh Token:', refresh_token);
-        console.log('Expires in:', expires_in, 'seconds');
+        this.accessToken = tokenResponse.token;
+        this.tokenExpiry = tokenResponse.expiresOnTimestamp;
         
-        // Save the refresh token to your .env file or database
-        // THIS IS YOUR OUTLOOK_REFRESH_TOKEN VALUE
-        console.log('\n📝 Add this to your .env file:');
-        console.log(`OUTLOOK_REFRESH_TOKEN=${refresh_token}`);
-        
-        res.send(`
-            <h1>Authentication Successful!</h1>
-            <p>Refresh token has been generated. Add it to your .env file:</p>
-            <code>OUTLOOK_REFRESH_TOKEN=${refresh_token}</code>
-            <p>You can now close this window and use the email sending functionality.</p>
-        `);
-
-    } catch (error) {
-        console.error('❌ Token exchange error:', error.response?.data || error.message);
-        res.status(500).send(`
-            <h1>Error</h1>
-            <pre>${JSON.stringify(error.response?.data || error.message, null, 2)}</pre>
-        `);
+        return this.accessToken;
+      } catch (error) {
+        console.error('Failed to get access token:', error);
+        throw error;
+      }
     }
-});
-
-// Step 3: Test email sending after getting refresh token
-router.get('/test-email', async (req, res) => {
-    try {
-        if (!process.env.OUTLOOK_REFRESH_TOKEN) {
-            return res.send(`
-                <h1>No refresh token set</h1>
-                <p>Please visit <a href="/auth/outlook">/auth/outlook</a> first to get a refresh token</p>
-            `);
+  
+    async createTransporter() {
+      try {
+        const accessToken = await this.getAccessToken();
+  
+        const transporter = nodemailer.createTransport({
+          host: 'smtp.office365.com',
+          port: 587,
+          secure: false, // true for 465, false for other ports
+          auth: {
+            type: 'OAuth2',
+            user: process.env.OUTLOOK_USER,
+            accessToken: accessToken,
+            clientId: process.env.OUTLOOK_CLIENT_ID,
+            clientSecret: process.env.OUTLOOK_CLIENT_SECRET,
+            tenantId: process.env.OUTLOOK_TENANT_ID,
+            refreshToken: '' // Not needed for client credentials flow
+          },
+          tls: {
+            ciphers: 'SSLv3',
+            rejectUnauthorized: false
+          }
+        });
+  
+        // Verify transporter configuration
+        await transporter.verify();
+        console.log('SMTP transporter configured successfully');
+        
+        return transporter;
+      } catch (error) {
+        console.error('Failed to create transporter:', error);
+        throw error;
+      }
+    }
+  
+    async sendEmail(emailData) {
+      try {
+        if (!this.transporter) {
+          this.transporter = await this.createTransporter();
         }
-
-        const emailResult = await sendEmailWithOAuth2();
-        res.send(`<h1>Email sent successfully!</h1><pre>${JSON.stringify(emailResult, null, 2)}</pre>`);
-    } catch (error) {
-        res.status(500).send(`<h1>Error sending email:</h1><pre>${error.message}</pre>`);
+  
+        const mailOptions = {
+          from: process.env.OUTLOOK_USER,
+          to: emailData.to,
+          subject: emailData.subject,
+          text: emailData.text,
+          headers: {
+            'X-Mailer': 'NodeMailer with OUTLOOK AD',
+            'X-Priority': '3'
+          }
+        };
+  
+        const result = await this.transporter.sendMail(mailOptions);
+        console.log('Email sent successfully:', result.messageId);
+        return { success: true, messageId: result.messageId, response: result.response };
+      } catch (error) {
+        console.error('Error sending email:', error);
+        
+        // If it's an authentication error, try to refresh the token
+        if (error.responseCode === 535 || error.responseCode === 534) {
+          console.log('Authentication failed, refreshing token...');
+          this.accessToken = null;
+          this.tokenExpiry = null;
+          this.transporter = await this.createTransporter();
+          
+          // Retry once
+          const retryResult = await this.transporter.sendMail({
+            from: process.env.OUTLOOK_USER,
+            to: emailData.to,
+            subject: emailData.subject,
+            text: emailData.text,
+            html: emailData.html
+          });
+          
+          console.log('Email sent successfully after retry:', retryResult.messageId);
+          return { success: true, messageId: retryResult.messageId, response: retryResult.response };
+        }
+        
+        throw error;
+      }
     }
-});
+  
+  }
 
-// Email sending function
-async function sendEmailWithOAuth2() {
-    const { OutlookOAuth2 } = require('./outlook-oauth'); // Your OAuth2 class
-    
-    const outlookAuth = new OutlookOAuth2();
-    const transporter = await outlookAuth.createTransporter();
-    
-    const mailOptions = {
-        from: process.env.OUTLOOK_USER,
-        to: process.env.OUTLOOK_USER, // Send to yourself for testing
-        subject: 'Test Email with OAuth2',
-        text: 'This is a test email sent using OAuth2 authentication!',
-        html: '<b>This is a test email sent using OAuth2 authentication!</b>'
-    };
 
-    return await transporter.sendMail(mailOptions);
+export const emailController = {
+  async sendOutlookEmail(req, res) {
+    try {
+      const { to, subject, text } = req.body;
+
+      if (!to || !subject || (!text)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required fields: to, subject, and text or html'
+        });
+      }
+
+      const result = await new EmailService().sendEmail({
+        to,
+        subject,
+        text
+      });
+
+      res.json({
+        success: true,
+        message: 'Email sent successfully',
+        data: result
+      });
+    } catch (error) {
+      console.error('Error in sendEmail controller:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to send email',
+        details: error.message
+      });
+    }
+  }
 }
-
-router.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`🔗 Start OAuth2 flow: http://localhost:${PORT}/auth/outlook`);
-    console.log(`📧 Test email: http://localhost:${PORT}/test-email`);
-});

@@ -155,7 +155,7 @@ export const sendCalendarEvent = async (req, res) => {
             to: email,
             subject: `Invitation: ${eventDetails.title}`,
             // text: `You've been invited to ${eventDetails.title}`,
-            html: emailTemplate(`You've been invited to ${eventDetails.title}`),
+            html: emailTemplate(`You've been invited to ${eventDetails.title}. Download The attachment below and add the event to your calendar.`),
             icalEvent: {
                 filename: 'invite.ics',
                 method: 'REQUEST',
