@@ -39,50 +39,71 @@ export class OutlookEmailService {
         }
     }
 
-    // Send email using Microsoft Graph API (arrow function)
-    sendEmail = async (req, res) => {
+    normalizeRecipients = (emails) => {
+        if (!emails) return [];
+
+        const emailList = Array.isArray(emails)
+            ? emails
+            : String(emails)
+                .split(',')
+                .map(email => email.trim())
+                .filter(Boolean);
+
+        return emailList.map(email => ({
+            emailAddress: { address: email }
+        }));
+    }
+
+    // Send email using Microsoft Graph API
+    sendEmail = async ({
+        recipients,
+        ccRecipients,
+        bccRecipients,
+        subject,
+        message,
+        messageHeader,
+        templateId = 3,
+        saveToSentItems = true
+    }) => {
         try {
             const accessToken = await this.getAccessToken();
-            return res.json({ accessToken });
-            const {
-                recipients,
-                ccRecipients,
-                bccRecipients,
-                subject,
-                message,
-                templateId
-            } = req.body;
-
             const emailTemplate = emailTemplatesLookup[templateId];
 
-            // Prepare recipients
-            const toRecipients = recipients.map(email => ({
-                emailAddress: { address: email.trim() }
-            }));
+            if (!emailTemplate) {
+                throw new Error(`Invalid templateId: ${templateId}`);
+            }
 
-            const ccRecipientsList = ccRecipients ? ccRecipients.map(email => ({
-                emailAddress: { address: email.trim() }
-            })) : [];
+            const toRecipients = this.normalizeRecipients(recipients);
+            const ccRecipientsList = this.normalizeRecipients(ccRecipients);
+            const bccRecipientsList = this.normalizeRecipients(bccRecipients);
 
-            const bccRecipientsList = bccRecipients ? bccRecipients.map(email => ({
-                emailAddress: { address: email.trim() }
-            })) : [];
+            if (toRecipients.length === 0) {
+                throw new Error('At least one recipient is required');
+            }
+
+            if (!subject) {
+                throw new Error('Email subject is required');
+            }
+
+            if (!message) {
+                throw new Error('Email message is required');
+            }
 
             // Send email via Graph API
-            const graphResponse = await axios.post(
+            await axios.post(
                 `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(process.env.OUTLOOK_USER)}/sendMail`,
                 {
                     message: {
                         subject: subject,
                         body: {
                             contentType: 'HTML',
-                            content: emailTemplate(message)
+                            content: emailTemplate(message, messageHeader)
                         },
                         toRecipients: toRecipients,
                         ccRecipients: ccRecipientsList,
                         bccRecipients: bccRecipientsList
                     },
-                    saveToSentItems: true
+                    saveToSentItems
                 },
                 {
                     headers: {
@@ -93,23 +114,15 @@ export class OutlookEmailService {
             );
 
             console.log('Email sent successfully via Graph API');
-            
-            if (res) {
-                res.status(200).json({ success: true, message: 'Email sent successfully' });
-            }
-            
-            return graphResponse.data;
+
+            return {
+                success: true,
+                message: 'Email sent successfully'
+            };
 
         } catch (error) {
             console.error('Email sending failed:', error.response?.data || error.message);
-            
-            if (res) {
-                res.status(500).json({ 
-                    success: false, 
-                    error: error.response?.data?.error?.message || error.message 
-                });
-            }
-            
+
             throw error;
         }
     }

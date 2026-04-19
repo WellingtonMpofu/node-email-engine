@@ -1,5 +1,4 @@
-// const impalaLogo = require('./assets/images/impalaLogo.svg')
-export const internalEmailTemplate = (message, messageHeader) => {
+export const genericEmailTemplate = (message, messageHeader) => {
     return (
         `
                 <!DOCTYPE html>
@@ -143,9 +142,7 @@ export const internalEmailTemplate = (message, messageHeader) => {
         <!-- Main Content Section -->
         <div class="content">
             <div class="content-inner">
-                <h3>${messageHeader ? messageHeader : "Hello there!"}</h3>
                 <p>${message}</p>
-                <p>Best regards,<br>Admin Team</p>
             </div>
         </div>
         

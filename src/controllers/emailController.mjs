@@ -1,39 +1,19 @@
-import nodemailer from 'nodemailer';
 import ical, { ICalCalendarMethod } from 'ical-generator';
 import "dotenv/config";
 import { emailTemplatesLookup } from '../constants.mjs';
+import { getTransporter } from '../utils/transporterService.mjs';
 // import { sendEmailWithOAuth2 } from './outlookController.mjs';
-
-// create a nodemailer gmailTransporter
-const gmailTransporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD
-    }
-})
-
-// create a nodemailer gmailTransporter
-const outlookTransporter = nodemailer.createTransport({
-    host: 'smtp-mail.outlook.com',
-    port: 587,
-    secure: false,
-    auth: {
-        user: process.env.OUTLOOK_USER,
-        pass: process.env.OUTLOOK_PASSWORD
-    },
-    tls: {
-        ciphers: 'SSLv3',
-    }
-})
 
 export const sendEmail = async (req, res) => {
     try {
         const {
+            emailType = "custom",
+            from,
             recipients,
             ccRecipients,
             bccRecipients,
             subject,
+            messageHeader,
             message,
             templateId
         } = req.body
@@ -42,17 +22,18 @@ export const sendEmail = async (req, res) => {
 
         // email options
         const mailOptions = {
-            from: process.env.SMTP_USER,
+            from: from || "sean@impala.co.zw",
             to: recipients,
             cc: ccRecipients,
             bcc: bccRecipients,
             subject,
             // html: getEmailTemplate("Wellington", "$200.00", 190430, "2024-09-34", "34-44-02", "Description Here", "$200.00")
-            html: emailTemplate(message),
+            html: emailTemplate(message, messageHeader),
         }
 
         // send the email
-        await gmailTransporter.sendMail(mailOptions)
+        const transporter = getTransporter(emailType, from)
+        await transporter.sendMail(mailOptions)
         res.status(200).send('Email sent successfully')
     }
     catch (error) {
@@ -70,6 +51,8 @@ export const sendEmailWithAttachments = async (req, res) => {
 
         const emailDetails = JSON.parse(req.body.emailDetails)
         const {
+            emailType = "custom",
+            from,
             recipients,
             ccRecipients,
             bccRecipients,
@@ -89,7 +72,7 @@ export const sendEmailWithAttachments = async (req, res) => {
 
         // email options
         const mailOptions = {
-            from: process.env.SMTP_USER,
+            from: from || process.env.SMTP_USER,
             to: recipients,
             cc: ccRecipients,
             bcc: bccRecipients,
@@ -100,7 +83,8 @@ export const sendEmailWithAttachments = async (req, res) => {
         }
 
         // send the email
-        await gmailTransporter.sendMail(mailOptions)
+        const transporter = getTransporter(emailType, from)
+        await transporter.sendMail(mailOptions)
         res.status(200).send('Email sent successfully')
     }
     catch (error) {
@@ -111,7 +95,7 @@ export const sendEmailWithAttachments = async (req, res) => {
 export const sendCalendarEvent = async (req, res) => {
     try {
 
-        const { eventDetails, email, templateId } = req.body;
+        const { eventDetails, email, templateId, emailType = "custom" } = req.body;
 
         const emailTemplate = emailTemplatesLookup[templateId]
 
@@ -149,9 +133,10 @@ export const sendCalendarEvent = async (req, res) => {
             ]
         });
 
+        const organizerEmail = process.env.EMAIL_USER
         // Email options
         const mailOptions = {
-            from: `"${eventDetails.organizerName}" <${process.env.EMAIL_USER}>`,
+            from: `"${eventDetails.organizerName}" <${organizerEmail}>`,
             to: email,
             subject: `Invitation: ${eventDetails.title}`,
             // text: `You've been invited to ${eventDetails.title}`,
@@ -167,7 +152,8 @@ export const sendCalendarEvent = async (req, res) => {
         };
 
         // Send email
-        await gmailTransporter.sendMail(mailOptions);
+        const transporter = getTransporter(emailType, organizerEmail)
+        await transporter.sendMail(mailOptions);
 
         res.json({ success: true, message: 'Calendar invite sent successfully' });
 
