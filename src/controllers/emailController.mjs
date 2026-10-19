@@ -95,7 +95,7 @@ export const sendEmailWithAttachments = async (req, res) => {
 export const sendCalendarEvent = async (req, res) => {
     try {
 
-        const { eventDetails, email, templateId, emailType = "custom" } = req.body;
+        const { eventDetails, email, templateId, emailType = "custom", from } = req.body;
 
         const emailTemplate = emailTemplatesLookup[templateId]
 
@@ -133,7 +133,7 @@ export const sendCalendarEvent = async (req, res) => {
             ]
         });
 
-        const organizerEmail = process.env.EMAIL_USER
+        const organizerEmail = from || process.env.MAIL_USER
         // Email options
         const mailOptions = {
             from: `"${eventDetails.organizerName}" <${organizerEmail}>`,
