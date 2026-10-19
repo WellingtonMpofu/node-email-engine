@@ -1,5 +1,5 @@
 // const impalaLogo = require('./assets/images/impalaLogo.svg')
-export const internalEmailTemplate = (message) => {
+export const internalEmailTemplate = (message, messageHeader) => {
     return (
         `
                 <!DOCTYPE html>
@@ -59,7 +59,7 @@ export const internalEmailTemplate = (message) => {
             color: #222222;
             margin-top: 0;
             margin-bottom: 15px;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
         }
         
@@ -143,7 +143,7 @@ export const internalEmailTemplate = (message) => {
         <!-- Main Content Section -->
         <div class="content">
             <div class="content-inner">
-                <h3>Hello there!</h3>
+                <h3>${messageHeader ? messageHeader : "Hello there!"}</h3>
                 <p>${message}</p>
                 <p>Best regards,<br>Admin Team</p>
             </div>
@@ -152,7 +152,7 @@ export const internalEmailTemplate = (message) => {
         <!-- Footer Section -->
         <footer class="footer">
             <div class="footer-bottom">
-                <p>&copy; 2025 Impala Car Rental. All rights reserved.</p>
+                <p>&copy; ${new Date().getFullYear()} Impala Car Rental. All rights reserved.</p>
                 <p>
                     <a href="https://impala.co.zw/privacy">Privacy Policy</a> |
                     <a href="https://impala.co.zw/terms">Terms of Service</a>
