@@ -1,0 +1,12 @@
+services:
+  email-service:
+    build: .
+    image: ghcr.io/organization/project-name/email-service:dev-v0.0.1
+    container_name: email-service
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3003}:3003"
+    env_file:
+      - .env
+    environment:
+      PORT: 3003
